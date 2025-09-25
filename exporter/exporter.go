@@ -3,55 +3,55 @@ package exporter
 import (
 	"encoding/csv"
 	"fmt"
-	"importer/customerimporter"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
+
+	"github.com/daveteshome/email-domain-counter/customerimporter"
 )
 
+var csvHeader = []string{"domain", "number_of_customers"}
+
 type CustomerExporter struct {
-	outputPath *string
+	outPath string
 }
 
-// NewCustomerExporter returns a new CustomerExporter that writes customer domain data to specified file.
-func NewCustomerExporter(outputPath *string) *CustomerExporter {
-	return &CustomerExporter{
-		outputPath: outputPath,
-	}
+func NewCustomerExporter(outPath string) *CustomerExporter {
+	return &CustomerExporter{outPath: outPath}
 }
 
-// ExportData writes sorted customer domain data to a CSV file. If file already exists, it will
-// be truncated.
-func (ex CustomerExporter) ExportData(data []customerimporter.DomainData) error {
-	if data == nil {
-		return fmt.Errorf("error provided data is empty (nil)")
+func (e *CustomerExporter) ExportData(data []customerimporter.DomainData) error {
+	if dir := filepath.Dir(e.outPath); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("ensure dir %q: %w", dir, err)
+		}
 	}
-	outputFile, err := os.Create(*ex.outputPath)
+
+	f, err := os.Create(e.outPath)
 	if err != nil {
-		return fmt.Errorf("error creating new file for saving: %v", err)
+		return fmt.Errorf("create output file %q: %w", e.outPath, err)
 	}
-	defer outputFile.Close()
-	return exportCsv(data, outputFile)
-}
+	defer f.Close()
 
-func exportCsv(data []customerimporter.DomainData, output io.Writer) error {
-	headers := []string{"domain", "number_of_customers"}
-	csvWriter := csv.NewWriter(output)
-	defer func() error {
-		csvWriter.Flush()
-		if err := csvWriter.Error(); err != nil {
-			return err
-		}
-		return nil
-	}()
-	if err := csvWriter.Write(headers); err != nil {
-		return err
-	}
-	for _, v := range data {
-		pair := []string{v.Domain, strconv.FormatUint(v.CustomerQuantity, 10)}
-		if err := csvWriter.Write(pair); err != nil {
-			return err
-		}
+	if err := WriteCSV(f, data); err != nil {
+		return fmt.Errorf("write CSV to %q: %w", e.outPath, err)
 	}
 	return nil
+}
+
+func WriteCSV(w io.Writer, data []customerimporter.DomainData) error {
+	cw := csv.NewWriter(w)
+
+	if err := cw.Write(csvHeader); err != nil {
+		return fmt.Errorf("write header: %w", err)
+	}
+	for _, d := range data {
+		if err := cw.Write([]string{d.Domain, strconv.Itoa(d.CustomerQuantity)}); err != nil {
+			return fmt.Errorf("write row for %q: %w", d.Domain, err)
+		}
+	}
+
+	cw.Flush()
+	return cw.Error()
 }
